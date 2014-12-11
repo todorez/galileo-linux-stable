@@ -462,6 +462,14 @@ config X86_INTEL_CE
 	  Select for the Intel CE media processor (CE4100) SOC.
 	  This option compiles in support for the CE4100 SOC for settop
 	  boxes and media devices.
+config INTEL_QUARK_X1000_SOC
+	bool "Intel Quark X1000 SOC support"
+	depends on M586TSC
+	select ARCH_REQUIRE_GPIOLIB
+	select I2C
+	---help---
+		Quark X1000 SOC support . This option enables probing for various
+		PCI-IDs of several on-chip devices provided by the X1000
 
 config X86_INTEL_MID
 	bool "Intel MID platform support"
@@ -1263,7 +1271,7 @@ config ARCH_PHYS_ADDR_T_64BIT
 
 config ARCH_DMA_ADDR_T_64BIT
 	def_bool y
-	depends on X86_64 || HIGHMEM64G
+	depends on X86_64 || HIGHMEM64G && !INTEL_QUARK_X1000_SOC
 
 config DIRECT_GBPAGES
 	bool "Enable 1GB pages for kernel pagetables" if EXPERT

@@ -281,6 +281,15 @@ config LPC_ICH
 	  other drivers to control these functions, currently GPIO and
 	  watchdog.
 
+config CY8C9540A
+	tristate "Cypress CY8C9540 GPIO/PWM expander"
+	depends on GPIOLIB
+	depends on I2C
+	depends on PWM
+	help
+	  Select this option to enable support for the CY8C9540 I/O expander.
+	  This device provides 40 interrupt-capable GPIOs, 8 PWMs and an EEPROM.
+
 config LPC_SCH
 	tristate "Intel SCH LPC"
 	depends on PCI

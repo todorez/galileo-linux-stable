@@ -1,0 +1,41 @@
+config INTEL_QRK_ESRAM
+	bool "eSRAM - embedded SRAM driver for Intel Quark platform"
+	depends on INTEL_QUARK_X1000_SOC && PM
+	select KALLSYMS
+	select CRC16
+	help
+	  Say Y here to enable eSRAM overlay and software-initiated ECC
+	  updates. eSRAM overlaying allows for code/data structures to be
+	  mapped into eSRAM thus providing far faster access to code/data
+	  than ordinary DRAM. Slower than cache RAM faster than DRAM.
+
+config INTEL_QRK_ECC_REFRESH_PERIOD
+	int "Choose eSRAM ECC coverage period"
+	depends on INTEL_QRK_ESRAM
+	default 24
+	help
+	  Select the period over which *RAM ECC codes should be refreshed.
+	  IA Core will periodically enable disabled eSRAM pages to ensure all of
+	  disabled eSRAM pages are 'address walked' in this period. A logical
+	  component within the silicon on Quark will ensure DRAM (and
+	  overlayed eSRAM) pages by extension are similarly updated over the
+	  same period. This variable controlls how long a time this address
+	  walking algorithm should take. For a noisy environment like a
+	  sub-station or a satellite update frequently. For less noisy
+	  environments this value should be lower. Default 24 hours is right for
+	  most people. Set to zero to disable - this is NOT recommended. Max 48
+	  hours.
+
+config INTEL_QRK_THERMAL
+	bool "Thermal driver for Intel Quark platform"
+	depends on INTEL_QUARK_X1000_SOC
+	help
+	  Say Y here to enable Quark's Thermal driver plus the MSI's
+	  that can be hooked from the thermal sub-system
+
+config INTEL_QRK_AUDIO_CTRL
+	tristate "Audio sub-system control driver for Intel Quark platform"
+	depends on INTEL_QUARK_X1000_SOC
+	help
+	  Say Y here to enable Quark's audio control driver
+

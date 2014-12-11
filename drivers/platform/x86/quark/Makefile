@@ -1,0 +1,14 @@
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_board_data.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_clanton_hill.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_clanton_peak.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_cross_hill.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_kips_bay.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_galileo.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_sb.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_imr.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_imr_kernel.o
+obj-$(CONFIG_INTEL_QRK_ESRAM)	+= intel_qrk_esram.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_imr_test.o
+obj-$(CONFIG_INTEL_QRK_ESRAM)	+= intel_qrk_esram_test.o
+obj-$(CONFIG_INTEL_QRK_THERMAL)	+= intel_qrk_thermal.o
+obj-$(CONFIG_INTEL_QRK_AUDIO_CTRL) += intel_qrk_audio_ctrl.o

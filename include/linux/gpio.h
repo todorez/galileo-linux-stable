@@ -30,6 +30,11 @@
 #define GPIOF_EXPORT_DIR_FIXED	(GPIOF_EXPORT)
 #define GPIOF_EXPORT_DIR_CHANGEABLE (GPIOF_EXPORT | GPIOF_EXPORT_CHANGEABLE)
 
+#define GPIOF_DRIVE_PULLUP     (1 << 6)
+#define GPIOF_DRIVE_PULLDOWN   (1 << 7)
+#define GPIOF_DRIVE_STRONG     (1 << 8)
+#define GPIOF_DRIVE_HIZ        (1 << 9)
+
 /**
  * struct gpio - a structure describing a GPIO with configuration
  * @gpio:	the GPIO number
