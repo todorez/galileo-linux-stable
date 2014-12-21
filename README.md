@@ -43,7 +43,7 @@ cp arch/x86/boot/bzImage ../galileo-stable-install/
 
 5.Install the new kernel and modules from the target directory (e.g ../galileo-stable-install) to your micro SD card
 
-5.1.Replace the bzImage found in the first partition (ESP) of your micro SD card with the one from you target directory (backup the bzImage on the micro SD card e.g. rename it to bzImage.old)
+5.1.Replace the bzImage found in the first partition (ESP) of your micro SD card with the one from your target directory (backup the bzImage on the micro SD card e.g. rename it to bzImage.old)
 
 5.2.Copy the kernel modules from the target directory to the /lib/modules/ directory found in the second 
 partition of your micro SD card (e.g /lib/modules/3.18.1-galileo-g1)
