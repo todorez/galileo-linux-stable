@@ -191,6 +191,7 @@ static int __init intel_qrk_board_data_init_legacy(void)
 		if (!strcmp(bsp_data[i].name, DEFAULT_BOARD)){
 			board_name = (char*)bsp_data[i].name;
 			platform_device_register(&bsp_data[i]);
+			break ;
 		}
 	}
 
