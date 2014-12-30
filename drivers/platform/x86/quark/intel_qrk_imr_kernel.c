@@ -62,7 +62,7 @@ static void intel_qrk_imr_runt_kerndata_setup(void)
 	uint32_t hi;
 	uint32_t lo;
 
-	hi = (uint32_t)virt_to_phys((unsigned long)&__init_begin);
+	hi = (uint32_t)virt_to_phys(&__init_begin);
 	lo = (uint32_t)virt_to_phys(&_text);
 
 	/* Set a locked IMR around the kernel .text section */
