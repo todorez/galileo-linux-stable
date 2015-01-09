@@ -63,16 +63,6 @@ struct dw_scl_sda_cfg {
 	u32 sda_hold;
 };
 
-struct dw_pci_controller {
-	u32 bus_num;
-	u32 bus_cfg;
-	u32 tx_fifo_depth;
-	u32 rx_fifo_depth;
-	u32 clk_khz;
-	u32 functionality;
-	struct dw_scl_sda_cfg *scl_sda_cfg;
-};
-
 #define INTEL_MID_STD_CFG  (DW_IC_CON_MASTER |			\
 				DW_IC_CON_SLAVE_DISABLE |	\
 				DW_IC_CON_RESTART_EN)

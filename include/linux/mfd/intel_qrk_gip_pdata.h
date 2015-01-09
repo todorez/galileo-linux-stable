@@ -14,8 +14,6 @@
 #ifndef LINUX_INTEL_QRK_GIP_DATA_H
 #define LINUX_INTEL_QRK_GIP_DATA_H
 
-struct pci_dev;
-
 struct intel_qrk_gip_pdata {
 	int		i2c_std_mode;
 };

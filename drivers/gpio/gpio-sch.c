@@ -26,162 +26,603 @@
 #include <linux/acpi.h>
 #include <linux/platform_device.h>
 #include <linux/pci_ids.h>
+#include <linux/uio_driver.h>
 
 #include <linux/gpio.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
 
-#define GEN	0x00
-#define GIO	0x04
-#define GLV	0x08
+static DEFINE_SPINLOCK(gpio_lock);
 
-struct sch_gpio {
-	struct gpio_chip chip;
-	spinlock_t lock;
-	unsigned short iobase;
-	unsigned short core_base;
-	unsigned short resume_base;
+#define CGEN	(0x00)
+#define CGIO	(0x04)
+#define CGLV	(0x08)
+
+#define CGTPE	(0x0C)
+#define CGTNE	(0x10)
+#define CGGPE	(0x14)
+#define CGSMI	(0x18)
+#define CGTS	(0x1C)
+
+#define RGEN	(0x20)
+#define RGIO	(0x24)
+#define RGLV	(0x28)
+
+#define RGTPE   (0x2C)
+#define RGTNE   (0x30)
+#define RGGPE   (0x34)
+#define RGSMI   (0x38)
+#define RGTS    (0x3C)
+
+#define CGNMIEN (0x40)
+#define RGNMIEN (0x44)
+
+#define RESOURCE_IRQ	9
+
+static unsigned long gpio_ba;
+
+static struct uio_info *info;
+
+static int irq_num;
+
+struct sch_gpio_core_int_regvals {
+	u8 cgtpe;
+	u8 cgtne;
+	u8 cggpe;
+	u8 cgsmi;
+	u8 cgnmien;
 };
 
-#define to_sch_gpio(c)	container_of(c, struct sch_gpio, chip)
+struct  sch_gpio_resume_int_regvals {
+	u8 rgtpe;
+	u8 rgtne;
+	u8 rggpe;
+	u8 rgsmi;
+	u8 rgnmien;
+};
 
-static unsigned sch_gpio_offset(struct sch_gpio *sch, unsigned gpio,
-				unsigned reg)
+struct sch_gpio {
+	int irq_base_core;
+	struct sch_gpio_core_int_regvals	initial_core;
+	struct sch_gpio_core_int_regvals        lp_core;
+	int irq_base_resume;
+	struct sch_gpio_resume_int_regvals        initial_resume;
+	struct sch_gpio_resume_int_regvals        lp_resume;
+};
+
+static struct sch_gpio *chip_ptr;
+
+static void qrk_gpio_restrict_release(struct device *dev) {}
+static struct platform_device qrk_gpio_restrict_pdev = {
+	.name	= "qrk-gpio-restrict-nc",
+	.dev.release = qrk_gpio_restrict_release,
+};
+
+static void sch_gpio_reg_clear_if_set(unsigned short reg,
+					unsigned short gpio_num)
 {
-	unsigned base = 0;
-
-	if (gpio >= sch->resume_base) {
-		gpio -= sch->resume_base;
-		base += 0x20;
-	}
-
-	return base + reg + gpio / 8;
-}
-
-static unsigned sch_gpio_bit(struct sch_gpio *sch, unsigned gpio)
-{
-	if (gpio >= sch->resume_base)
-		gpio -= sch->resume_base;
-	return gpio % 8;
-}
-
-static void sch_gpio_enable(struct sch_gpio *sch, unsigned gpio)
-{
-	unsigned short offset, bit;
-	u8 enable;
-
-	spin_lock(&sch->lock);
-
-	offset = sch_gpio_offset(sch, gpio, GEN);
-	bit = sch_gpio_bit(sch, gpio);
-
-	enable = inb(sch->iobase + offset);
-	if (!(enable & (1 << bit)))
-		outb(enable | (1 << bit), sch->iobase + offset);
-
-	spin_unlock(&sch->lock);
-}
-
-static int sch_gpio_direction_in(struct gpio_chip *gc, unsigned  gpio_num)
-{
-	struct sch_gpio *sch = to_sch_gpio(gc);
 	u8 curr_dirs;
 	unsigned short offset, bit;
 
-	spin_lock(&sch->lock);
+	offset = reg + gpio_num / 8;
+	bit = gpio_num % 8;
 
-	offset = sch_gpio_offset(sch, gpio_num, GIO);
-	bit = sch_gpio_bit(sch, gpio_num);
+	curr_dirs = inb(gpio_ba + offset);
 
-	curr_dirs = inb(sch->iobase + offset);
+	if (curr_dirs & (1 << bit))
+		outb(curr_dirs & ~(1 << bit), gpio_ba + offset);
+}
+
+static void sch_gpio_reg_set_if_clear(unsigned short reg,
+					unsigned short gpio_num)
+{
+	u8 curr_dirs;
+	unsigned short offset, bit;
+
+	offset = reg + gpio_num / 8;
+	bit = gpio_num % 8;
+
+	curr_dirs = inb(gpio_ba + offset);
 
 	if (!(curr_dirs & (1 << bit)))
-		outb(curr_dirs | (1 << bit), sch->iobase + offset);
+		outb(curr_dirs | (1 << bit), gpio_ba + offset);
+}
 
-	spin_unlock(&sch->lock);
+static void sch_gpio_reg_set(unsigned short reg, unsigned short gpio_num,
+				int val)
+{
+	u8 curr_dirs;
+	unsigned short offset, bit;
+
+	offset = reg + gpio_num / 8;
+	bit = gpio_num % 8;
+
+	curr_dirs = inb(gpio_ba + offset);
+
+	if (val)
+		outb(curr_dirs | (1 << bit), gpio_ba + offset);
+	else
+		outb(curr_dirs & ~(1 << bit), gpio_ba + offset);
+}
+
+static unsigned short sch_gpio_reg_get(unsigned short reg,
+					unsigned short gpio_num)
+{
+	u8 curr_dirs;
+	unsigned short offset, bit;
+
+	offset = reg + gpio_num / 8;
+	bit = gpio_num % 8;
+
+	curr_dirs = !!(inb(gpio_ba + offset) & (1 << bit));
+
+	return curr_dirs;
+}
+
+static int sch_gpio_core_direction_in(struct gpio_chip *gc, unsigned  gpio_num)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_set_if_clear(CGIO, gpio_num);
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
 	return 0;
 }
 
-static int sch_gpio_get(struct gpio_chip *gc, unsigned gpio_num)
+static int sch_gpio_core_get(struct gpio_chip *gc, unsigned gpio_num)
 {
-	struct sch_gpio *sch = to_sch_gpio(gc);
 	int res;
-	unsigned short offset, bit;
 
-	offset = sch_gpio_offset(sch, gpio_num, GLV);
-	bit = sch_gpio_bit(sch, gpio_num);
-
-	res = !!(inb(sch->iobase + offset) & (1 << bit));
+	res = sch_gpio_reg_get(CGLV, gpio_num);
 
 	return res;
 }
 
-static void sch_gpio_set(struct gpio_chip *gc, unsigned gpio_num, int val)
+static void sch_gpio_core_set(struct gpio_chip *gc, unsigned gpio_num, int val)
 {
-	struct sch_gpio *sch = to_sch_gpio(gc);
-	u8 curr_vals;
-	unsigned short offset, bit;
+	unsigned long flags = 0;
 
-	spin_lock(&sch->lock);
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_set(CGLV, gpio_num, val);
+	spin_unlock_irqrestore(&gpio_lock, flags);
 
-	offset = sch_gpio_offset(sch, gpio_num, GLV);
-	bit = sch_gpio_bit(sch, gpio_num);
-
-	curr_vals = inb(sch->iobase + offset);
-
-	if (val)
-		outb(curr_vals | (1 << bit), sch->iobase + offset);
-	else
-		outb((curr_vals & ~(1 << bit)), sch->iobase + offset);
-
-	spin_unlock(&sch->lock);
 }
 
-static int sch_gpio_direction_out(struct gpio_chip *gc, unsigned gpio_num,
-				  int val)
+static int sch_gpio_core_direction_out(struct gpio_chip *gc,
+					unsigned gpio_num, int val)
 {
-	struct sch_gpio *sch = to_sch_gpio(gc);
-	u8 curr_dirs;
-	unsigned short offset, bit;
+	unsigned long flags = 0;
 
-	spin_lock(&sch->lock);
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_clear_if_set(CGIO, gpio_num);
+	spin_unlock_irqrestore(&gpio_lock, flags);
 
-	offset = sch_gpio_offset(sch, gpio_num, GIO);
-	bit = sch_gpio_bit(sch, gpio_num);
-
-	curr_dirs = inb(sch->iobase + offset);
-	if (curr_dirs & (1 << bit))
-		outb(curr_dirs & ~(1 << bit), sch->iobase + offset);
-
-	spin_unlock(&sch->lock);
-
-	/*
-	 * according to the datasheet, writing to the level register has no
-	 * effect when GPIO is programmed as input.
-	 * Actually the the level register is read-only when configured as input.
-	 * Thus presetting the output level before switching to output is _NOT_ possible.
-	 * Hence we set the level after configuring the GPIO as output.
-	 * But we cannot prevent a short low pulse if direction is set to high
-	 * and an external pull-up is connected.
-	 */
-	sch_gpio_set(gc, gpio_num, val);
 	return 0;
 }
 
-static struct gpio_chip sch_gpio_chip = {
-	.label			= "sch_gpio",
+static int sch_gpio_core_to_irq(struct gpio_chip *gc, unsigned offset)
+{
+	return chip_ptr->irq_base_core + offset;
+}
+
+static struct gpio_chip sch_gpio_core = {
+	.label			= "sch_gpio_core",
 	.owner			= THIS_MODULE,
-	.direction_input	= sch_gpio_direction_in,
-	.get			= sch_gpio_get,
-	.direction_output	= sch_gpio_direction_out,
-	.set			= sch_gpio_set,
+	.direction_input	= sch_gpio_core_direction_in,
+	.get			= sch_gpio_core_get,
+	.direction_output	= sch_gpio_core_direction_out,
+	.set			= sch_gpio_core_set,
+	.to_irq			= sch_gpio_core_to_irq,
 };
+
+static void sch_gpio_core_irq_enable(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_core;
+	sch_gpio_reg_set_if_clear(CGGPE, gpio_num);
+}
+
+static void sch_gpio_core_irq_disable(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_core;
+	sch_gpio_reg_clear_if_set(CGGPE, gpio_num);
+}
+
+static void sch_gpio_core_irq_ack(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_core;
+	sch_gpio_reg_set(CGTS, gpio_num, 1);
+}
+
+static int sch_gpio_core_irq_type(struct irq_data *d, unsigned type)
+{
+	int ret = 0;
+	unsigned long flags = 0;
+	u32 gpio_num = 0;
+
+	if (NULL == d) {
+		pr_err("%s(): null irq_data\n",  __func__);
+		return -EFAULT;
+	}
+
+	gpio_num = d->irq - chip_ptr->irq_base_core;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	switch (type) {
+	case IRQ_TYPE_EDGE_RISING:
+		sch_gpio_reg_clear_if_set(CGTNE, gpio_num);
+		sch_gpio_reg_set_if_clear(CGTPE, gpio_num);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		sch_gpio_reg_clear_if_set(CGTPE, gpio_num);
+		sch_gpio_reg_set_if_clear(CGTNE, gpio_num);
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		sch_gpio_reg_set_if_clear(CGTPE, gpio_num);
+		sch_gpio_reg_set_if_clear(CGTNE, gpio_num);
+		break;
+	case IRQ_TYPE_NONE:
+		sch_gpio_reg_clear_if_set(CGTPE, gpio_num);
+		sch_gpio_reg_clear_if_set(CGTNE, gpio_num);
+		break;
+	default:
+		ret = -EINVAL;
+	break;
+	}
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
+	return ret;
+}
+
+static struct irq_chip sch_irq_core = {
+	.irq_ack		= sch_gpio_core_irq_ack,
+	.irq_set_type		= sch_gpio_core_irq_type,
+	.irq_enable		= sch_gpio_core_irq_enable,
+	.irq_disable		= sch_gpio_core_irq_disable,
+};
+
+static void sch_gpio_core_irqs_init(struct sch_gpio *chip, unsigned int num)
+{
+	int i;
+
+	for (i = 0; i < num; i++) {
+		irq_set_chip_data(i + chip->irq_base_core, chip);
+		irq_set_chip_and_handler_name(i + chip->irq_base_core,
+						&sch_irq_core,
+						handle_simple_irq,
+						"sch_gpio_irq_core");
+	}
+}
+
+static void sch_gpio_core_irqs_deinit(struct sch_gpio *chip, unsigned int num)
+{
+	int i;
+
+	for (i = 0; i < num; i++) {
+		irq_set_chip_data(i + chip->irq_base_core, 0);
+		irq_set_chip_and_handler_name(i + chip->irq_base_core,
+						0, 0, 0);
+	}
+}
+
+static void sch_gpio_core_irq_disable_all(struct sch_gpio *chip,
+						unsigned int num)
+{
+	unsigned long flags = 0;
+	u32 gpio_num = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	for (gpio_num = 0; gpio_num < num; gpio_num++) {
+		sch_gpio_reg_clear_if_set(CGTPE, gpio_num);
+		sch_gpio_reg_clear_if_set(CGTNE, gpio_num);
+		sch_gpio_reg_clear_if_set(CGGPE, gpio_num);
+		sch_gpio_reg_clear_if_set(CGSMI, gpio_num);
+		sch_gpio_reg_clear_if_set(CGNMIEN, gpio_num);
+		/* clear any pending interrupt */
+		sch_gpio_reg_set(CGTS, gpio_num, 1);
+	}
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
+}
+
+void sch_gpio_core_save_state(struct sch_gpio_core_int_regvals *regs)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	regs->cgtpe	= inb(gpio_ba + CGTPE);
+	regs->cgtne	= inb(gpio_ba + CGTNE);
+	regs->cggpe	= inb(gpio_ba + CGGPE);
+	regs->cgsmi	= inb(gpio_ba + CGSMI);
+	regs->cgnmien	= inb(gpio_ba + CGNMIEN);
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+}
+
+void sch_gpio_core_restore_state(struct sch_gpio_core_int_regvals *regs)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	outb(regs->cgtpe, gpio_ba + CGTPE);
+	outb(regs->cgtne, gpio_ba + CGTNE);
+	outb(regs->cggpe, gpio_ba + CGGPE);
+	outb(regs->cgsmi, gpio_ba + CGSMI);
+	outb(regs->cgnmien, gpio_ba + CGNMIEN);
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+}
+
+static int sch_gpio_resume_direction_in(struct gpio_chip *gc,
+					unsigned gpio_num)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_set_if_clear(RGIO, gpio_num);
+	spin_unlock_irqrestore(&gpio_lock, flags);
+	return 0;
+}
+
+static int sch_gpio_resume_get(struct gpio_chip *gc, unsigned gpio_num)
+{
+	int res;
+
+	res = sch_gpio_reg_get(RGLV, gpio_num);
+	return res;
+}
+
+static void sch_gpio_resume_set(struct gpio_chip *gc, unsigned gpio_num,
+					int val)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_set(RGLV, gpio_num, val);
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
+}
+
+static int sch_gpio_resume_direction_out(struct gpio_chip *gc,
+					unsigned gpio_num, int val)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+	sch_gpio_reg_clear_if_set(RGIO, gpio_num);
+	spin_unlock_irqrestore(&gpio_lock, flags);
+	return 0;
+}
+
+static int sch_gpio_resume_to_irq(struct gpio_chip *gc, unsigned offset)
+{
+	return chip_ptr->irq_base_resume + offset;
+}
+
+static struct gpio_chip sch_gpio_resume = {
+	.label			= "sch_gpio_resume",
+	.owner			= THIS_MODULE,
+	.direction_input	= sch_gpio_resume_direction_in,
+	.get			= sch_gpio_resume_get,
+	.direction_output	= sch_gpio_resume_direction_out,
+	.set			= sch_gpio_resume_set,
+	.to_irq			= sch_gpio_resume_to_irq,
+};
+
+static void sch_gpio_resume_irq_enable(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_resume;
+	sch_gpio_reg_set_if_clear(RGGPE, gpio_num);
+}
+
+static void sch_gpio_resume_irq_disable(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_resume;
+	sch_gpio_reg_clear_if_set(RGGPE, gpio_num);
+}
+
+static void sch_gpio_resume_irq_ack(struct irq_data *d)
+{
+	u32 gpio_num = 0;
+
+	gpio_num = d->irq - chip_ptr->irq_base_resume;
+	sch_gpio_reg_set(RGTS, gpio_num, 1);
+}
+
+static int sch_gpio_resume_irq_type(struct irq_data *d, unsigned type)
+{
+	int ret = 0;
+	unsigned long flags = 0;
+	u32 gpio_num = 0;
+
+	if (NULL == d) {
+		pr_err("%s(): null irq_data\n",  __func__);
+		return -EFAULT;
+	}
+
+	gpio_num = d->irq - chip_ptr->irq_base_resume;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	switch (type) {
+	case IRQ_TYPE_EDGE_RISING:
+		sch_gpio_reg_clear_if_set(RGTNE, gpio_num);
+		sch_gpio_reg_set_if_clear(RGTPE, gpio_num);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		sch_gpio_reg_clear_if_set(RGTPE, gpio_num);
+		sch_gpio_reg_set_if_clear(RGTNE, gpio_num);
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		sch_gpio_reg_set_if_clear(RGTPE, gpio_num);
+		sch_gpio_reg_set_if_clear(RGTNE, gpio_num);
+		break;
+	case IRQ_TYPE_NONE:
+		sch_gpio_reg_clear_if_set(RGTPE, gpio_num);
+		sch_gpio_reg_clear_if_set(RGTNE, gpio_num);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+
+	return ret;
+}
+
+static struct irq_chip sch_irq_resume = {
+	.irq_ack		= sch_gpio_resume_irq_ack,
+	.irq_set_type		= sch_gpio_resume_irq_type,
+	.irq_enable		= sch_gpio_resume_irq_enable,
+	.irq_disable		= sch_gpio_resume_irq_disable,
+};
+
+static void sch_gpio_resume_irqs_init(struct sch_gpio *chip, unsigned int num)
+{
+	int i;
+
+	for (i = 0; i < num; i++) {
+		irq_set_chip_data(i + chip->irq_base_resume, chip);
+		irq_set_chip_and_handler_name(i + chip->irq_base_resume,
+						&sch_irq_resume,
+						handle_simple_irq,
+						"sch_gpio_irq_resume");
+	}
+}
+
+static void sch_gpio_resume_irqs_deinit(struct sch_gpio *chip, unsigned int num)
+{
+	int i;
+
+	for (i = 0; i < num; i++) {
+		irq_set_chip_data(i + chip->irq_base_core, 0);
+		irq_set_chip_and_handler_name(i + chip->irq_base_core,
+						0, 0, 0);
+	}
+}
+
+static void sch_gpio_resume_irq_disable_all(struct sch_gpio *chip,
+						unsigned int num)
+{
+	unsigned long flags = 0;
+	u32 gpio_num = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	for (gpio_num = 0; gpio_num < num; gpio_num++) {
+		sch_gpio_reg_clear_if_set(RGTPE, gpio_num);
+		sch_gpio_reg_clear_if_set(RGTNE, gpio_num);
+		sch_gpio_reg_clear_if_set(RGGPE, gpio_num);
+		sch_gpio_reg_clear_if_set(RGSMI, gpio_num);
+		sch_gpio_reg_clear_if_set(RGNMIEN, gpio_num);
+		/* clear any pending interrupt */
+		sch_gpio_reg_set(RGTS, gpio_num, 1);
+	}
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+}
+
+void sch_gpio_resume_save_state(struct sch_gpio_resume_int_regvals *regs)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	regs->rgtpe	= inb(gpio_ba + RGTPE);
+	regs->rgtne	= inb(gpio_ba + RGTNE);
+	regs->rggpe	= inb(gpio_ba + RGGPE);
+	regs->rgsmi	= inb(gpio_ba + RGSMI);
+	regs->rgnmien	= inb(gpio_ba + RGNMIEN);
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+}
+
+void sch_gpio_resume_restore_state(struct sch_gpio_resume_int_regvals *regs)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&gpio_lock, flags);
+
+	outb(regs->rgtpe, gpio_ba + RGTPE);
+	outb(regs->rgtne, gpio_ba + RGTNE);
+	outb(regs->rggpe, gpio_ba + RGGPE);
+	outb(regs->rgsmi, gpio_ba + RGSMI);
+	outb(regs->rgnmien, gpio_ba + RGNMIEN);
+
+	spin_unlock_irqrestore(&gpio_lock, flags);
+}
+
+static irqreturn_t sch_gpio_irq_handler(int irq, void *dev_id)
+{
+	int res;
+	int i, ret = IRQ_NONE;
+
+	for (i = 0; i < sch_gpio_core.ngpio; i++) {
+
+		res = sch_gpio_reg_get(CGTS, i);
+		if (res) {
+			/* clear by setting TS to 1 */
+			sch_gpio_reg_set(CGTS, i, 1);
+
+			generic_handle_irq(chip_ptr->irq_base_core + i);
+			ret = IRQ_HANDLED;
+		}
+	}
+
+	for (i = 0; i < sch_gpio_resume.ngpio; i++) {
+
+		res = sch_gpio_reg_get(RGTS, i);
+		if (res) {
+			/* clear by setting TS to 1 */
+			sch_gpio_reg_set(RGTS, i, 1);
+
+			generic_handle_irq(chip_ptr->irq_base_resume + i);
+			ret = IRQ_HANDLED;
+		}
+	}
+
+	return ret;
+}
 
 static int sch_gpio_probe(struct platform_device *pdev)
 {
-	struct sch_gpio *sch;
 	struct resource *res;
+	struct sch_gpio *chip;
+	int err, id;
 
-	sch = devm_kzalloc(&pdev->dev, sizeof(*sch), GFP_KERNEL);
-	if (!sch)
+	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
+	if (chip == NULL)
+		return -ENOMEM;
+
+	chip_ptr = chip;
+
+	sch_gpio_core_save_state(&(chip->initial_core));
+	sch_gpio_resume_save_state(&(chip->initial_resume));
+
+	id = pdev->id;
+	if (!id)
+		return -ENODEV;
+
+	/* Get UIO memory */
+	info = kzalloc(sizeof(struct uio_info), GFP_KERNEL);
+	if (!info)
 		return -ENOMEM;
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
@@ -192,17 +633,17 @@ static int sch_gpio_probe(struct platform_device *pdev)
 				 pdev->name))
 		return -EBUSY;
 
-	spin_lock_init(&sch->lock);
-	sch->iobase = res->start;
-	sch->chip = sch_gpio_chip;
-	sch->chip.label = dev_name(&pdev->dev);
-	sch->chip.dev = &pdev->dev;
+	gpio_ba = res->start;
 
-	switch (pdev->id) {
+	irq_num = RESOURCE_IRQ;
+
+	switch (id) {
 	case PCI_DEVICE_ID_INTEL_SCH_LPC:
-		sch->core_base = 0;
-		sch->resume_base = 10;
-		sch->chip.ngpio = 14;
+		sch_gpio_core.base = 0;
+		sch_gpio_core.ngpio = 10;
+
+		sch_gpio_resume.base = 10;
+		sch_gpio_resume.ngpio = 4;
 
 		/*
 		 * GPIO[6:0] enabled by default
@@ -219,31 +660,199 @@ static int sch_gpio_probe(struct platform_device *pdev)
 		break;
 
 	case PCI_DEVICE_ID_INTEL_ITC_LPC:
-		sch->core_base = 0;
-		sch->resume_base = 5;
-		sch->chip.ngpio = 14;
+		sch_gpio_core.base = 0;
+		sch_gpio_core.ngpio = 5;
+
+		sch_gpio_resume.base = 5;
+		sch_gpio_resume.ngpio = 9;
 		break;
 
 	case PCI_DEVICE_ID_INTEL_CENTERTON_ILB:
-		sch->core_base = 0;
-		sch->resume_base = 21;
-		sch->chip.ngpio = 30;
+		sch_gpio_core.base = 0;
+		sch_gpio_core.ngpio = 21;
+
+		sch_gpio_resume.base = 21;
+		sch_gpio_resume.ngpio = 9;
+		break;
+
+	case PCI_DEVICE_ID_INTEL_QUARK_ILB:
+		sch_gpio_core.base = 0;
+		sch_gpio_core.ngpio = 2;
+
+		sch_gpio_resume.base = 2;
+		sch_gpio_resume.ngpio = 6;
 		break;
 
 	default:
 		return -ENODEV;
 	}
 
-	platform_set_drvdata(pdev, sch);
+	sch_gpio_core.dev = &pdev->dev;
+	sch_gpio_resume.dev = &pdev->dev;
 
-	return gpiochip_add(&sch->chip);
+	err = gpiochip_add(&sch_gpio_core);
+	if (err < 0)
+		goto err_sch_gpio_core;
+
+	err = gpiochip_add(&sch_gpio_resume);
+	if (err < 0)
+		goto err_sch_gpio_resume;
+
+	chip->irq_base_core = irq_alloc_descs(-1, 0,
+						sch_gpio_core.ngpio,
+						NUMA_NO_NODE);
+	if (chip->irq_base_core < 0) {
+		dev_err(&pdev->dev, "failure adding GPIO core IRQ descs\n");
+		chip->irq_base_core = -1;
+		goto err_sch_intr_core;
+	}
+
+	chip->irq_base_resume = irq_alloc_descs(-1, 0,
+						sch_gpio_resume.ngpio,
+						NUMA_NO_NODE);
+	if (chip->irq_base_resume < 0) {
+		dev_err(&pdev->dev, "failure adding GPIO resume IRQ descs\n");
+		chip->irq_base_resume = -1;
+		goto err_sch_intr_resume;
+	}
+
+	platform_set_drvdata(pdev, chip);
+
+	err = platform_device_register(&qrk_gpio_restrict_pdev);
+	if (err < 0)
+		goto err_sch_gpio_device_register;
+
+	/* disable interrupts */
+	sch_gpio_core_irq_disable_all(chip, sch_gpio_core.ngpio);
+	sch_gpio_resume_irq_disable_all(chip, sch_gpio_resume.ngpio);
+
+
+	err = request_irq(irq_num, sch_gpio_irq_handler,
+				IRQF_SHARED, KBUILD_MODNAME, chip);
+	if (err != 0) {
+			dev_err(&pdev->dev,
+				"%s request_irq failed\n", __func__);
+			goto err_sch_request_irq;
+	}
+
+	sch_gpio_core_irqs_init(chip, sch_gpio_core.ngpio);
+	sch_gpio_resume_irqs_init(chip, sch_gpio_resume.ngpio);
+
+	/* UIO */
+	info->port[0].name = "gpio_regs";
+	info->port[0].start = res->start;
+	info->port[0].size = resource_size(res);
+	info->port[0].porttype = UIO_PORT_X86;
+	info->name = "sch_gpio";
+	info->version = "0.0.1";
+
+	if (uio_register_device(&pdev->dev, info))
+		goto err_sch_uio_register;
+
+	pr_info("%s UIO port addr 0x%04x size %lu porttype %d\n",
+		__func__, (unsigned int)info->port[0].start,
+		info->port[0].size, info->port[0].porttype);
+
+	return 0;
+
+err_sch_uio_register:
+	free_irq(irq_num, chip);
+
+err_sch_request_irq:
+	platform_device_unregister(&qrk_gpio_restrict_pdev);
+
+err_sch_gpio_device_register:
+	irq_free_descs(chip->irq_base_resume, sch_gpio_resume.ngpio);
+
+err_sch_intr_resume:
+	irq_free_descs(chip->irq_base_core, sch_gpio_core.ngpio);
+
+err_sch_intr_core:
+	gpiochip_remove(&sch_gpio_resume);
+
+err_sch_gpio_resume:
+	gpiochip_remove(&sch_gpio_core);
+
+err_sch_gpio_core:
+	release_region(res->start, resource_size(res));
+	gpio_ba = 0;
+
+	sch_gpio_resume_restore_state(&(chip->initial_resume));
+	sch_gpio_core_restore_state(&(chip->initial_core));
+
+	kfree(chip);
+	chip_ptr = 0;
+
+	if (info != NULL)
+		kfree(info);
+
+	return err;
 }
 
 static int sch_gpio_remove(struct platform_device *pdev)
 {
-	struct sch_gpio *sch = platform_get_drvdata(pdev);
+	int err = 0;
+	struct resource *res;
 
-	gpiochip_remove(&sch->chip);
+	struct sch_gpio *chip = platform_get_drvdata(pdev);
+
+	if (gpio_ba) {
+
+		if (info != NULL) {
+			uio_unregister_device(info);
+			kfree(info);
+		}
+
+		sch_gpio_resume_irqs_deinit(chip, sch_gpio_resume.ngpio);
+		sch_gpio_core_irqs_deinit(chip, sch_gpio_core.ngpio);
+
+		if (irq_num > 0)
+			free_irq(irq_num, chip);
+
+		platform_device_unregister(&qrk_gpio_restrict_pdev);
+
+		irq_free_descs(chip->irq_base_resume,
+				sch_gpio_resume.ngpio);
+
+		irq_free_descs(chip->irq_base_core, sch_gpio_core.ngpio);
+
+		gpiochip_remove(&sch_gpio_resume);
+
+		gpiochip_remove(&sch_gpio_core);
+
+		res = platform_get_resource(pdev, IORESOURCE_IO, 0);
+
+		release_region(res->start, resource_size(res));
+		gpio_ba = 0;
+	}
+
+	sch_gpio_resume_restore_state(&(chip->initial_resume));
+	sch_gpio_core_restore_state(&(chip->initial_core));
+
+	kfree(chip);
+
+	chip_ptr = 0;
+
+	return err;
+}
+
+static int sch_gpio_suspend_sys(struct platform_device *pdev,
+				pm_message_t state)
+{
+	sch_gpio_core_save_state(&(chip_ptr->lp_core));
+	sch_gpio_resume_save_state(&(chip_ptr->lp_resume));
+
+	sch_gpio_resume_restore_state(&(chip_ptr->initial_resume));
+	sch_gpio_core_restore_state(&(chip_ptr->initial_core));
+
+	return 0;
+}
+
+static int sch_gpio_resume_sys(struct platform_device *pdev)
+{
+	sch_gpio_resume_restore_state(&(chip_ptr->lp_resume));
+	sch_gpio_core_restore_state(&(chip_ptr->lp_core));
+
 	return 0;
 }
 
@@ -253,6 +862,8 @@ static struct platform_driver sch_gpio_driver = {
 	},
 	.probe		= sch_gpio_probe,
 	.remove		= sch_gpio_remove,
+	.suspend	= sch_gpio_suspend_sys,
+	.resume		= sch_gpio_resume_sys,
 };
 
 module_platform_driver(sch_gpio_driver);

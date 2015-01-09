@@ -139,6 +139,11 @@ obj-$(CONFIG_MFD_TIMBERDALE)    += timberdale.o
 obj-$(CONFIG_PMIC_ADP5520)	+= adp5520.o
 obj-$(CONFIG_MFD_KEMPLD)	+= kempld-core.o
 obj-$(CONFIG_CY8C9540A)         += cy8c9540a.o
+obj-$(CONFIG_INTEL_QRK_GIP)     += intel_qrk_gip.o
+intel_qrk_gip-objs              := intel_qrk_gip_core.o \
+									intel_qrk_gip_gpio.o \
+									intel_qrk_gip_i2c.o \
+                                        ../i2c/busses/i2c-designware-core.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)   += intel_qrk_gip_pdata.o
 obj-$(CONFIG_LPC_SCH)		+= lpc_sch.o
 obj-$(CONFIG_LPC_ICH)		+= lpc_ich.o

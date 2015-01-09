@@ -394,13 +394,14 @@ config GPIO_VR41XX
 	  Say yes here to support the NEC VR4100 series General-purpose I/O Uint
 
 config GPIO_SCH
-	tristate "Intel SCH/TunnelCreek/Centerton GPIO"
+	tristate "Intel SCH/TunnelCreek/Centerton/Quark GPIO"
 	depends on PCI && X86
 	select MFD_CORE
 	select LPC_SCH
 	help
 	  Say yes here to support GPIO interface on Intel Poulsbo SCH,
-	  Intel Tunnel Creek processor or Intel Centerton processor.
+	  Intel Tunnel Creek processor, Intel Centerton processor or
+	  Intel Quark.
 	  The Intel SCH contains a total of 14 GPIO pins. Ten GPIOs are
 	  powered by the core power rail and are turned off during sleep
 	  modes (S3 and higher). The remaining four GPIOs are powered by
@@ -412,6 +413,8 @@ config GPIO_SCH
 	  The Intel Centerton processor has a total of 30 GPIO pins.
 	  Twenty-one are powered by the core power rail and 9 from the
 	  suspend power supply.
+	  The Intel Quark has 2 GPIOs powered by the core power well and 6
+          form the suspend power well.
 
 config GPIO_ICH
 	tristate "Intel ICH GPIO"

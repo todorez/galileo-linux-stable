@@ -22,6 +22,8 @@
  *
  */
 
+#include <linux/irqreturn.h>
+
 
 #define DW_IC_CON_MASTER		0x1
 #define DW_IC_CON_SPEED_STD		0x2
@@ -30,6 +32,16 @@
 #define DW_IC_CON_RESTART_EN		0x20
 #define DW_IC_CON_SLAVE_DISABLE		0x40
 
+struct dw_pci_controller {
+	u32 bus_num;
+	u32 bus_cfg;
+	u32 tx_fifo_depth;
+	u32 rx_fifo_depth;
+	u32 clk_khz;
+	u32 functionality;
+	struct dw_scl_sda_cfg *scl_sda_cfg;
+	u8  explicit_stop;
+};
 
 /**
  * struct dw_i2c_dev - private i2c-designware data
@@ -101,6 +113,7 @@ struct dw_i2c_dev {
 	u16			ss_lcnt;
 	u16			fs_hcnt;
 	u16			fs_lcnt;
+	u8                      explicit_stop;
 };
 
 #define ACCESS_SWAP		0x00000001

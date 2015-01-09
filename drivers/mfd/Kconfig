@@ -290,6 +290,18 @@ config CY8C9540A
 	  Select this option to enable support for the CY8C9540 I/O expander.
 	  This device provides 40 interrupt-capable GPIOs, 8 PWMs and an EEPROM.
 
+config INTEL_QRK_GIP
+	tristate "Intel Quark GIP"
+	depends on PCI && X86 && INTEL_QUARK_X1000_SOC
+	depends on I2C
+	select GENERIC_IRQ_CHIP
+	help
+	  GIP driver for Quark SoC.
+	  Quark GIP is a single PCI function exporting a GPIO and an I2C
+	  controller, namely Synopsys DesignWare GPIO and Synopsys DesignWare
+	  I2C.  The GPIO interface exports a total amount of 8 interrupt-capable
+	  GPIOs.
+
 config LPC_SCH
 	tristate "Intel SCH LPC"
 	depends on PCI
