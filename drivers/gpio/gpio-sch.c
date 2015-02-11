@@ -629,8 +629,7 @@ static int sch_gpio_probe(struct platform_device *pdev)
 	if (!res)
 		return -EBUSY;
 
-	if (!devm_request_region(&pdev->dev, res->start, resource_size(res),
-				 pdev->name))
+	if (!request_region(res->start, resource_size(res), pdev->name))
 		return -EBUSY;
 
 	gpio_ba = res->start;
@@ -650,13 +649,12 @@ static int sch_gpio_probe(struct platform_device *pdev)
 		 * GPIO7 is configured by the CMC as SLPIOVR
 		 * Enable GPIO[9:8] core powered gpios explicitly
 		 */
-		sch_gpio_enable(sch, 8);
-		sch_gpio_enable(sch, 9);
+		outb(0x3, gpio_ba + CGEN + 1);
 		/*
 		 * SUS_GPIO[2:0] enabled by default
 		 * Enable SUS_GPIO3 resume powered gpio explicitly
 		 */
-		sch_gpio_enable(sch, 13);
+		outb(0x8, gpio_ba + RGEN);
 		break;
 
 	case PCI_DEVICE_ID_INTEL_ITC_LPC:
@@ -684,7 +682,8 @@ static int sch_gpio_probe(struct platform_device *pdev)
 		break;
 
 	default:
-		return -ENODEV;
+		err = -ENODEV;
+		goto err_sch_gpio_core;
 	}
 
 	sch_gpio_core.dev = &pdev->dev;
@@ -859,6 +858,7 @@ static int sch_gpio_resume_sys(struct platform_device *pdev)
 static struct platform_driver sch_gpio_driver = {
 	.driver = {
 		.name = "sch_gpio",
+		.owner = THIS_MODULE,
 	},
 	.probe		= sch_gpio_probe,
 	.remove		= sch_gpio_remove,
