@@ -26,4 +26,15 @@ config IIO_BFIN_TMR_TRIGGER
 	  To compile this driver as a module, choose M here: the
 	  module will be called iio-trig-bfin-timer.
 
+config IIO_HRTIMER_TRIGGER
+	tristate "HRTIMER trigger"
+	#depends on HRTIMER
+	select IRQ_WORK
+	help
+		Provides support for using HRTIMER entries as IIO triggers.
+		If unsure, say N (but it's safe to say "Y").
+
+		To compile this driver as a module, choose M here: the
+		module will be called iio-trig-hrtimer.
+
 endif # IIO_TRIGGER

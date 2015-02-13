@@ -34,7 +34,6 @@
 #define AD7298_TAVG	BIT(1) /* temperature sensor averaging enable */
 #define AD7298_PDD	BIT(0) /* partial power down enable */
 
-#define AD7298_MAX_CHAN		8
 #define AD7298_INTREF_mV	2500
 
 #define AD7298_CH_TEMP		9
@@ -43,6 +42,7 @@ struct ad7298_state {
 	struct spi_device		*spi;
 	struct regulator		*reg;
 	unsigned			ext_ref;
+	u16						ext_vin_max[AD7298_MAX_CHAN];
 	struct spi_transfer		ring_xfer[10];
 	struct spi_transfer		scan_single_xfer[3];
 	struct spi_message		ring_msg;
@@ -260,7 +260,10 @@ static int ad7298_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			*val = ad7298_get_ref_voltage(st);
+			if (st->ext_vin_max[chan->channel])
+				*val = st->ext_vin_max[chan->channel];
+			else
+				*val = ad7298_get_ref_voltage(st);
 			*val2 = chan->scan_type.realbits;
 			return IIO_VAL_FRACTIONAL_LOG2;
 		case IIO_TEMP:
@@ -296,8 +299,14 @@ static int ad7298_probe(struct spi_device *spi)
 
 	st = iio_priv(indio_dev);
 
-	if (pdata && pdata->ext_ref)
-		st->ext_ref = AD7298_EXTREF;
+	if (pdata) {
+		int i;
+		if (pdata->ext_ref)
+			st->ext_ref = AD7298_EXTREF;
+
+		for (i = 0; i < AD7298_MAX_CHAN; i++)
+			st->ext_vin_max[i] = pdata->ext_vin_max[i];
+	}
 
 	if (st->ext_ref) {
 		st->reg = devm_regulator_get(&spi->dev, "vref");
