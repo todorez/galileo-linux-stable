@@ -1,9 +1,9 @@
 galileo-linux-stable
 ====================
 
-This is a kernel for Intel Galileo Gen1 which will be rebased on and will track Linux stable.
+This is a kernel for Intel Galileo Gen1/2 which will be rebased on and will track Linux stable.
 
-If your Galileo Gen1 project requires some of the latest kernel features then this might be the 
+If your Galileo Gen1/2 project requires some of the latest kernel features then this might be the 
 Linux kernel for you. 
 
 How to build the kernel?
