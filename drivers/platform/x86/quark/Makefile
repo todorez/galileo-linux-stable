@@ -4,6 +4,7 @@ obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_clanton_peak.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_cross_hill.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_kips_bay.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_plat_galileo.o
+obj-$(CONFIG_INTEL_QUARK_X1000_SOC) += intel_qrk_plat_galileo_gen2.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_sb.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_imr.o
 obj-$(CONFIG_INTEL_QUARK_X1000_SOC)	+= intel_qrk_imr_kernel.o
