@@ -258,15 +258,6 @@ static int intel_qrk_spi_add_onboard_devs(void)
 					ARRAY_SIZE(spi1_onboard_devs));
 }
 
-
-static struct gpio reserved_gpios[] = {
-	{
-		GPIO_PCAL9555A_EXP2_INT,
-		GPIOF_IN,
-		"pcal9555a-exp2-int",
-	},
-};
-
 /**
  * intel_qrk_gpio_restrict_probe
  *
@@ -292,7 +283,7 @@ static int intel_qrk_gpio_restrict_probe(struct platform_device *pdev)
 		return -EPROBE_DEFER;
 	}
 
-	ret = gpio_request_array(reserved_gpios, ARRAY_SIZE(reserved_gpios));
+	ret = gpio_request_one(GPIO_PCAL9555A_EXP2_INT, GPIOF_IN, "pcal9555a-exp2-int");
 	if (ret) {
 		dev_err(&client->dev, "failed to request reserved gpios\n");
 		goto end;
