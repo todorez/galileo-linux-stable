@@ -65,7 +65,7 @@ unsigned long long tsc_delta(unsigned long long first, unsigned long long end)
 	if (first < end)
 		return end - first;
 	else
-		return (ULLONG_MAX - first) + end;	
+		return (ULLONG_MAX - first) + end;
 }
 
 
@@ -77,7 +77,7 @@ unsigned long long tsc_delta(unsigned long long first, unsigned long long end)
 static unsigned long long intel_qrk_crctest(char * pdata, u32 crcsize)
 {
 	unsigned long long j1 = 0, j2 = 0;
-	
+
 	rdtscll(j1);
 
 	/* Flush LMT cache to introduce cache miss to our test */
@@ -173,7 +173,7 @@ int intel_qrk_esram_test_pagref_count(void)
 	if(ret == 0){
 		bist_err(-EFAULT);
 	}
-#endif	
+#endif
 	return 0;
 }
 
@@ -218,7 +218,7 @@ int intel_qrk_esram_test_contig_perfmetric(void)
 	if(ret){
 		bist_err(ret);
 	}
-	
+
 	/* Get metric */
 	crc_cache = 1;
 	crc32_fullmap = intel_qrk_crctest(esram_test_dev.pdata, crcsize);
@@ -258,11 +258,11 @@ int intel_qrk_esram_test_kernel_codemap(void)
 		printk(KERN_ERR "%s map symbol msleep fail\n", __FUNCTION__);
 		bist_err(ret);
 	}
-	
+
 	/* run the mapped code */
 	msleep(1);
 
-	/* unmap */	
+	/* unmap */
 	ret = intel_qrk_esram_unmap_symbol(msleep);
 	if(ret){
 		printk(KERN_ERR "%s unmap symbol msleep fail\n", __FUNCTION__);
@@ -288,14 +288,14 @@ int intel_qrk_esram_test_kernel_datamap(void)
 	if(ret){
 		bist_err(ret);
 	}
-	
+
 	jtag = jiffies;
 	/* Wait for jiffies to tick or timeout to occur (failure) */
 	while(jtag == jiffies){
 		ctrl++;
 	}
 
-	/* unmap */	
+	/* unmap */
 	ret = intel_qrk_esram_unmap_range(idt_table, INTEL_QRK_ESRAM_PAGE_SIZE, name);
 	if(ret){
 		bist_err(ret);
@@ -498,7 +498,7 @@ static int intel_qrk_esram_test_probe(struct platform_device * pdev)
 		kfree(esram_test_dev.pdata);
 		return -EINVAL;
 	}
-	printk(KERN_INFO "%s/%s/%s complete OK !!\n", __FUNCTION__, __DATE__,__TIME__);
+	printk(KERN_INFO "%s complete OK !!\n", __FUNCTION__);
 	return 0;
 
 }
@@ -563,7 +563,7 @@ static int __init intel_qrk_esram_test_init(void)
 		&intel_qrk_esram_test_driver, intel_qrk_esram_test_probe, NULL, 0, NULL, 0);
 
 	if(IS_ERR(esram_test_dev.pldev)){
-		printk(KERN_ERR "platform_create_bundle fail!\n"); 
+		printk(KERN_ERR "platform_create_bundle fail!\n");
 		retval = PTR_ERR(esram_test_dev.pldev);
 		goto err_class;
 	}
